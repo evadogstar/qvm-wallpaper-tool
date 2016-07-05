@@ -6,9 +6,9 @@ Store it at dom0 then chmod +x it then
 `qvm-wallpaper-tool <appVM> {path_to_jpg_or_png} 
 
 ### Under the hood:
-0. Convert image at AppVM with ImageMagic and store it with new name
-0. Download converted image to dom0 to temp directory
-0. Convert it 2 time to prevent maybe possible injections at AppVM
+0. Convert image at AppVM with ImageMagick and store it with new temp name at AppVM
+0. Download converted image to dom0 temp
+0. Convert it 2(next) time at dom0 to prevent maybe possible injections at AppVM
 
 ### Issues
 * No without GUI
