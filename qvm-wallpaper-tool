@@ -1,0 +1,109 @@
+#!/bin/sh
+
+# Secure copy wallpapers from AppVM to dom0 
+# by converting it at new images at AppVM
+# then at dom0 if something was injected on image
+# after first conversion. 
+# Support only png and jpg
+
+# EvaDogStar (c) 2016
+
+DOM0_SHOTS_DIR=$HOME/Pictures
+APPVM_SHOTS_DIR=/home/user/Pictures
+d=`date +"%Y-%m-%d-%H%M%S"`
+
+rightdom0dir=$(xdg-user-dir PICTURES)
+if [[ "$rightdom0dir" =~ ^/home/user* ]]; then
+DOM0_SHOTS_DIR=$rightdom0dir
+fi
+
+
+while [ ${#} != 0 ]; do
+  case "${1}" in
+  -h | --help)
+    echo "usage: ${0} [--gui]"
+    echo ""
+    echo "  -h, --help                   Show this help, exit"
+#    echo "  -g, --gui                    Start with gui prompt"
+    exit 0;;
+#  -g | --gui)
+#    mode="gui"
+#    shift;;
+  *)
+    appvm="${1}"
+    appvmwallpaper="${2}"
+    shift 2 
+    break;;
+  esac
+done
+
+destdirectory=$(dirname  "$appvmwallpaper")
+basefilename=$(basename "$appvmwallpaper")
+extension="${basefilename##*.}"
+filename="${basefilename%.*}"
+
+if [ "$extension" != "jpg" ] && [ "$extension" != "jpeg" ] && [ "$extension" != "png" ]; then
+ echo "[error] unsupported file extension at AppVM"
+ exit 1
+fi
+
+
+echo "$appvm : $appvmwallpaper"
+qvm-run --pass-io $appvm "test -e $appvmwallpaper"
+if [ $? -ne 0 ]; then
+    echo "[error] file does not exists at AppVm"
+    exit 2
+fi
+
+tempappvmfile=$destdirectory/$filename-$d.$extension
+RESULT="$(qvm-run --pass-io $appvm "convert $appvmwallpaper -strip $tempappvmfile")"
+#exitcode=$?
+if [ $? -ne 0 ]; then
+    echo "[error] Convertaion of image to make image secure failed at AppVM"
+    exit 3
+fi
+
+# Get secure image to temp directory
+TMP=`mktemp -d`
+trap 'rm -rf -- "$TMP"' EXIT
+TMP_DOM0_WALLPAPER=$TMP/unsercurewallpaper.$extension
+RESP=$TMP/tmpfifo
+
+# move it to dom0 and delete at AppVM tmp
+qvm-run --pass-io $appvm "cat $tempappvmfile" > $TMP_DOM0_WALLPAPER
+qvm-run --pass-io $appvm "rm $tempappvmfile"
+
+DOM0_STORE_SECURE_WALLPAPER=$DOM0_SHOTS_DIR/wallpaper-$d.$extension
+
+# lets convert it 2(next) time
+convert $TMP_DOM0_WALLPAPER -strip $DOM0_STORE_SECURE_WALLPAPER
+if [ $? -ne 0 ]; then
+    echo "invalid image at dom0" >&2
+    exit
+else
+    echo "[+] Image securety converted: $DOM0_STORE_SECURE_WALLPAPER" >&2  
+fi
+
+
+# if [ "$XDG_CURRENT_DESKTOP" = "" ]
+# then
+#   desktop=$(echo "$XDG_DATA_DIRS" | sed 's/.*\(xfce\|kde\|gnome\).*/\1/')
+# else
+#   desktop=$XDG_CURRENT_DESKTOP
+# fi
+
+# desktop=${desktop,,}  # convert to lower case
+#echo "$desktop"
+
+# if [ X"$desktop" == X"xfce" ]; then
+#   echo "set xfce wallpaper"
+#   echo -e "# xfce backdrop list\n$DOM0_STORE_SECURE_WALLPAPER">$HOME/.config/xfce4/desktop/backdrops.list    
+#   killall -USR1 xfdesktop
+#   xfdesktop --reload
+# elif [ X"$desktop" == X"kde" ]; then
+#   echo 1
+# elif [ X"$desktop" == X"gnome" ]; then
+#   echo 1
+# fi
+
+exit
