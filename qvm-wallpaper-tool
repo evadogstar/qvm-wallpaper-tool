@@ -6,8 +6,6 @@
 # after first conversion. 
 # Support only png and jpg
 
-# EvaDogStar (c) 2016
-
 DOM0_SHOTS_DIR=$HOME/Pictures
 APPVM_SHOTS_DIR=/home/user/Pictures
 d=`date +"%Y-%m-%d-%H%M%S"`
@@ -48,37 +46,56 @@ if [ "$extension" != "jpg" ] && [ "$extension" != "jpeg" ] && [ "$extension" != 
 fi
 
 
-echo "$appvm : $appvmwallpaper"
+#echo "$appvm : $appvmwallpaper"
 qvm-run --pass-io $appvm "test -e $appvmwallpaper"
 if [ $? -ne 0 ]; then
     echo "[error] file does not exists at AppVm"
     exit 2
 fi
 
-tempappvmfile=$destdirectory/$filename-$d.$extension
-RESULT="$(qvm-run --pass-io $appvm "convert $appvmwallpaper -strip $tempappvmfile")"
-#exitcode=$?
-if [ $? -ne 0 ]; then
-    echo "[error] Convertaion of image to make image secure failed at AppVM"
-    exit 3
+# get original image size to convert image to rgb, work with it only if it have proper $extension (jpg or png)
+WIDTH=$(qvm-run --pass-io $appvm "identify -format \"%w\" $extension:$appvmwallpaper")
+HEIGHT=$(qvm-run --pass-io $appvm "identify -format \"%h\" $extension:$appvmwallpaper")
+#HEIGHT=$("identify -format \"%h\" $appvmwallpaper")
+
+if [[ ! "$WIDTH" =~ ^[1-9][0-9]*$ ]] || [ $WIDTH -le 0 ] || [ $WIDTH -gt 6000 ] || \
+   [[ ! "$HEIGHT" =~ ^[1-9][0-9]*$ ]] || [ $HEIGHT -le 0 ] || [ $HEIGHT -gt 6000 ]; then
+      echo "AppVM return invalid image geometry info, aborting!"
+      exit 6
 fi
 
+#tempappvmfile=$destdirectory/$filename-$d.$extension
+tempappvmfile=$destdirectory/$filename-$d.rgb
+#if [ "$extension" == "jpg" ] || [ "$extension" == "jpeg" ] || [ "$extension" == "png" ]; then
+  qvm-run --pass-io $appvm "convert -size ${WIDTH}x${HEIGHT} -depth 16 $extension:$appvmwallpaper rgb:$tempappvmfile"
+  if [ $? -ne 0 ]; then
+      # ImageMagic expects jpg or png and failed with error if image have invalid starting bytes at the header
+      echo "[error] Image is not save and can not be converted at AppVM"
+      exit 4
+  fi  
+#else
+#    echo "[error] Convertaion of image to make image secure failed at AppVM"    
+#    exit 3
+#fi
+
+#exitcode=$?
 # Get secure image to temp directory
 TMP=`mktemp -d`
 trap 'rm -rf -- "$TMP"' EXIT
-TMP_DOM0_WALLPAPER=$TMP/unsercurewallpaper.$extension
+TMP_DOM0_WALLPAPER=$TMP/unsercurewallpaper.rgb
 RESP=$TMP/tmpfifo
 
 # move it to dom0 and delete at AppVM tmp
 qvm-run --pass-io $appvm "cat $tempappvmfile" > $TMP_DOM0_WALLPAPER
 qvm-run --pass-io $appvm "rm $tempappvmfile"
 
+# convert back to original format (jpg or png) from rgb
 DOM0_STORE_SECURE_WALLPAPER=$DOM0_SHOTS_DIR/wallpaper-$d.$extension
 
 # lets convert it 2(next) time
-convert $TMP_DOM0_WALLPAPER -strip $DOM0_STORE_SECURE_WALLPAPER
+convert -size ${WIDTH}x${HEIGHT} -depth 16 rgb:$TMP_DOM0_WALLPAPER $extension:$DOM0_STORE_SECURE_WALLPAPER
 if [ $? -ne 0 ]; then
-    echo "invalid image at dom0" >&2
+    echo "invalid exploited image at dom0" >&2
     exit
 else
     echo "[+] Image securety converted: $DOM0_STORE_SECURE_WALLPAPER" >&2  
